@@ -47,3 +47,11 @@ app.*.map.json
 # JaaS / signing keys — never commit
 *.pk
 *.pub
+
+# Firebase admin service accounts + APNs keys — never commit
+*-firebase-adminsdk*.json
+*serviceAccount*.json
+*.p8
+
+# MCP server config (may carry access tokens)
+.mcp.json
