@@ -365,9 +365,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         child: _MentorCard(
                           mentor: m,
                           isOnline: online.contains(m.id),
-                          onCall: online.contains(m.id)
-                              ? () => _handleCall(m)
-                              : null,
+                          // Callable regardless of presence: presence only
+                          // tracks a foregrounded app, but a push wakes a
+                          // backgrounded/killed device too. The dot still shows
+                          // who's active now; an unreachable mentor just misses
+                          // the ring and the session is marked missed.
+                          onCall: () => _handleCall(m),
                         ),
                       );
                     },
