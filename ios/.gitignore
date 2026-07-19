@@ -32,3 +32,6 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+# Firebase iOS config (not needed for our VoIP path, but keep out if added)
+GoogleService-Info.plist

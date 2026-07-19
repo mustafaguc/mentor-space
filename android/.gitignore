@@ -12,3 +12,7 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Firebase Cloud Messaging config (per-project; keep out of the repo).
+google-services.json
+app/google-services.json

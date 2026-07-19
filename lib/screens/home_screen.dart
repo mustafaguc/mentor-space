@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -5,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/profile.dart';
 import '../providers/providers.dart';
 import '../services/call_service.dart';
+import '../services/push_service.dart';
 import '../ui/brand.dart';
 import '../ui/widgets.dart';
 import 'login_screen.dart';
@@ -20,6 +23,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _call = CallService();
   RealtimeChannel? _incoming;
+  StreamSubscription<AcceptedCall>? _acceptSub;
   String? _activeSessionId;
 
   // Set only when *this* user is the client who placed the call, so we know to
@@ -51,15 +55,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     _listenForIncomingCalls();
+    _listenForAccepts();
   }
 
   @override
   void dispose() {
     if (_incoming != null) _db.removeChannel(_incoming!);
+    _acceptSub?.cancel();
     super.dispose();
   }
 
-  // ---- Realtime: mentor receives a call ------------------------------------
+  // ---- Realtime: mentor receives a call (foreground fallback) ---------------
+  // The native ringing UI (flutter_callkit_incoming) is the primary surface for
+  // incoming calls, raised by an FCM/VoIP push even when the app is killed. This
+  // Realtime listener is a foreground-only fallback that raises the *same* ring
+  // while the app is open — useful before push is configured, and deduped by
+  // session id inside PushService so the two paths never double-ring.
   void _listenForIncomingCalls() {
     final uid = _db.auth.currentUser?.id;
     if (uid == null) return;
@@ -74,37 +85,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             column: 'mentor_id',
             value: uid,
           ),
-          callback: (payload) => _onIncomingCall(payload.newRecord),
+          callback: (payload) =>
+              PushService.instance.showFromSession(payload.newRecord),
         )
         .subscribe();
   }
 
-  Future<void> _onIncomingCall(Map<String, dynamic> session) async {
-    final callerId = session['client_id'] as String;
-    final roomId = session['room_id'] as String;
-    final sessionId = session['id'] as String;
-
-    final caller = await _db
-        .from('profiles')
-        .select('full_name')
-        .eq('id', callerId)
-        .maybeSingle();
-    final callerName = (caller?['full_name'] as String?)?.trim();
-
-    if (!mounted) return;
-    final accept = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => _IncomingCallDialog(
-        callerName: callerName?.isNotEmpty == true ? callerName! : 'Someone',
-      ),
-    );
-
-    if (accept == true) {
-      await _joinRoom(roomId, sessionId, status: 'active');
-    } else {
-      await _db.from('sessions').update({'status': 'rejected'}).eq('id', sessionId);
+  // ---- Accept from the native ringing UI -> join the Jitsi room ------------
+  void _listenForAccepts() {
+    // Cold start: a call accepted from the ringing UI while the app launched.
+    final pending = PushService.instance.takePending();
+    if (pending != null) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _acceptCall(pending));
     }
+    _acceptSub = PushService.instance.accepts.listen(_acceptCall);
+  }
+
+  Future<void> _acceptCall(AcceptedCall call) async {
+    if (!mounted || call.roomId.isEmpty) return;
+    if (_activeSessionId == call.sessionId) return; // already joining
+    await _joinRoom(call.roomId, call.sessionId, status: 'active');
+  }
+
+  /// Fire a push so the mentor's device rings (FCM on Android, VoIP on iOS).
+  /// Fire-and-forget: the call proceeds even if the ring push fails.
+  Future<void> _notifyCallee(String sessionId, {String action = 'ring'}) async {
+    try {
+      await _db.functions.invoke('notify-call',
+          body: {'sessionId': sessionId, 'action': action});
+    } catch (_) {}
   }
 
   Future<int> _currentBalance() async {
@@ -149,6 +159,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           .single();
       final sessionId = inserted['id'] as String;
       _mentorToRate = mentor; // we're the client -> rate afterwards
+      // Wake the mentor's device (rings even if their app is killed).
+      unawaited(_notifyCallee(sessionId));
       if (!mounted) return;
       await _joinRoom(roomId, sessionId,
           status: 'active', displayName: me?.displayName);
@@ -185,6 +197,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _mentorToRate = null;
     _callStartedAt = null;
     if (id == null) return;
+    // If we were the caller and hung up before the mentor answered, dismiss any
+    // ring still showing on their device.
+    if (mentor != null) unawaited(_notifyCallee(id, action: 'cancel'));
     await _db.from('sessions').update({
       'status': 'ended',
       'ended_at': DateTime.now().toIso8601String(),
@@ -252,7 +267,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _logout() async => _db.auth.signOut();
+  Future<void> _logout() async {
+    await PushService.instance.removeTokens();
+    await _db.auth.signOut();
+  }
 
   // ---- UI ------------------------------------------------------------------
   @override
@@ -693,70 +711,6 @@ class _CallButton extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-// ---------------------------------------------------------------------------
-class _IncomingCallDialog extends StatelessWidget {
-  final String callerName;
-  const _IncomingCallDialog({required this.callerName});
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            GradientAvatar(
-                seed: callerName, initials: _initials(callerName), radius: 40),
-            const SizedBox(height: 16),
-            Text(callerName,
-                style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Brand.ink)),
-            const SizedBox(height: 2),
-            const Text('is calling you…',
-                style: TextStyle(color: Color(0xFF6B7280))),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size.fromHeight(50),
-                      foregroundColor: const Color(0xFFEF4444),
-                    ),
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Decline',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Accept'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _initials(String n) {
-    final p = n.trim().split(RegExp(r'\s+'));
-    if (p.length == 1) {
-      return (p.first.length >= 2 ? p.first.substring(0, 2) : p.first)
-          .toUpperCase();
-    }
-    return (p.first[0] + p.last[0]).toUpperCase();
   }
 }
 

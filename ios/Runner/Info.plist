@@ -49,6 +49,14 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Incoming-call push: VoIP wakes a killed app to ring; audio for the call;
+	     remote-notification for completeness. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>voip</string>
+		<string>audio</string>
+		<string>remote-notification</string>
+	</array>
 	<!-- OAuth redirect deep link: mentorspace://login-callback -->
 	<key>CFBundleURLTypes</key>
 	<array>

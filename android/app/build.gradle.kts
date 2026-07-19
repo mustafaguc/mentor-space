@@ -5,6 +5,14 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Firebase Cloud Messaging for incoming-call push. Applied only when
+// android/app/google-services.json is present, so the app still builds before
+// Firebase is configured — FCM (killed/background wakeups) just stays disabled
+// until the file is added (see docs/PUSH_NOTIFICATIONS_SETUP.md).
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "app.mentora.mentora"
     compileSdk = flutter.compileSdkVersion
