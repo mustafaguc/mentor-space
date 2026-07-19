@@ -50,7 +50,7 @@ supabase functions deploy notify-call
 
 1. **Create a Firebase project** at <https://console.firebase.google.com> (or
    reuse one). Firebase is free for FCM.
-2. **Add an Android app** with package name **`app.mentora.mentora`**.
+2. **Add an Android app** with package name **`co.mentorspace`**.
    (App nickname / SHA-1 are optional for FCM.)
 3. **Download `google-services.json`** and drop it at:
    ```
@@ -72,7 +72,7 @@ That's the whole Android setup. Rebuild the app:
 ## 4. iOS — APNs VoIP  *(build on a Mac / Xcode required)*
 
 1. **Apple Developer** → Certificates, Identifiers & Profiles:
-   - Ensure the App ID (bundle id, e.g. `app.mentora.mentora`) has the
+   - Ensure the App ID (bundle id, e.g. `co.mentorspace`) has the
      **Push Notifications** capability.
    - Create an **APNs Auth Key** (Keys → +, enable *Apple Push Notifications
      service*). Download the **`.p8`** once and note the **Key ID** and your
@@ -83,7 +83,7 @@ That's the whole Android setup. Rebuild the app:
      APNS_KEY="$(cat AuthKey_XXXXXXXXXX.p8)" \
      APNS_KEY_ID=XXXXXXXXXX \
      APNS_TEAM_ID=YYYYYYYYYY \
-     APNS_BUNDLE_ID=app.mentora.mentora \
+     APNS_BUNDLE_ID=co.mentorspace \
      APNS_PRODUCTION=false      # "true" for TestFlight/App Store builds
    ```
    `APNS_PRODUCTION=false` targets the **sandbox** APNs host (debug builds run

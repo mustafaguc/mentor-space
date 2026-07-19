@@ -1,4 +1,4 @@
-package app.mentora.mentora
+package co.mentorspace
 
 import io.flutter.embedding.android.FlutterActivity
 
